@@ -1,7 +1,26 @@
 import '../models/food_item.dart';
+import 'database_service.dart';
+import 'package:sqflite/sqflite.dart';
 
 class FoodService {
-  static List<FoodItem> getFoodItems() {
+  static List<FoodItem> _foods = [];
+  static List<FoodItem> getFoodItems() => List.unmodifiable(_foods);
+
+  static Future<void> initialize() async {
+    final db = await DatabaseService.instance.database;
+    await db.transaction((tx) async {
+      for (final food in _seedItems()) {
+        await tx.insert('menu_items', {
+          'id': food.id, 'name': food.name,
+          'description': food.description, 'price_paise': food.pricePaise,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+    });
+    _foods = (await db.query('menu_items', orderBy: 'id'))
+      .map(FoodItem.fromMap).toList();
+  }
+
+  static List<FoodItem> _seedItems() {
     return [
       FoodItem(
         id: 1,

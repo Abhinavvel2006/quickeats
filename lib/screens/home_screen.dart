@@ -14,10 +14,39 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final CartService cartService = CartService();
+  bool _loading = true;
+  bool _adding = false;
+  String? _loadError;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    setState(() { _loading = true; _loadError = null; });
+    try {
+      await FoodService.initialize();
+      await cartService.load();
+    } catch (_) {
+      _loadError = 'Could not open local data. Please retry.';
+    }
+    if (mounted) setState(() { _loading = false; });
+  }
+
+  void _message(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message), duration: const Duration(seconds: 2)));
+  }
+
 
   @override
   Widget build(BuildContext context) {
-    final foodItems = FoodService.getFoodItems();
+    final foodItems = FoodService.getFoodItems().where((food) =>
+      '${food.name} ${food.description}'.toLowerCase().contains(_query));
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
@@ -36,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         actions: [
           IconButton(
-            onPressed: () async {
+            onPressed: _loading || _loadError != null || _adding ? null : () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -46,7 +75,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               );
 
-              setState(() {});
+              try { await cartService.load(); }
+              catch (_) { _message('Could not refresh the saved cart. Please reopen the app.'); }
+              if (mounted) setState(() {});
             },
 
             icon: const Icon(
@@ -60,7 +91,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // ---------------- BODY ----------------
 
-      body: ListView(
+      body: _loading ? const Center(child: CircularProgressIndicator())
+          : _loadError != null ? Center(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [Text(_loadError!), TextButton(
+                onPressed: _initialize, child: const Text('Retry'))]))
+          : ListView(
         padding: const EdgeInsets.all(16),
 
         children: [
@@ -88,6 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // ---------------- SEARCH ----------------
 
           TextField(
+            onChanged: (value) => setState(() { _query = value.trim().toLowerCase(); }),
             decoration: InputDecoration(
               hintText: 'Search food...',
 
@@ -177,22 +214,17 @@ class _HomeScreenState extends State<HomeScreen> {
               return FoodCard(
                 food: food,
 
-                onAdd: () {
-                  setState(() {
-                    cartService.addToCart(food);
-                  });
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        '${food.name} added to cart',
-                      ),
-
-                      duration: const Duration(
-                        seconds: 1,
-                      ),
-                    ),
-                  );
+                onAdd: () async {
+                  if (_adding) return;
+                  setState(() { _adding = true; });
+                  try {
+                    await cartService.addToCart(food);
+                    if (!mounted) return;
+                    setState(() {});
+                    _message('${food.name} added to cart');
+                  } catch (error) {
+                    _message(error.toString().replaceFirst('Bad state: ', ''));
+                  } finally { if (mounted) setState(() { _adding = false; }); }
                 },
               );
             },
